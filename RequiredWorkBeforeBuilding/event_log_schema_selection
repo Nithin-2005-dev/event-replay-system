@@ -1,0 +1,92 @@
+An event is:
+An immutable, self-contained fact that was true at a specific time, independent of how we interpret it today.
+That means:
+•	No derived state
+•	No projection assumptions
+•	No “before/after”
+Only what happened.
+
+Now Let’s Design the Event Envelope
+
+This is the minimum viable, production-safe event record.
+
+1️⃣ event_id (UUID)
+Globally unique
+Idempotency anchor
+Never reused
+✅ You got this right.
+
+2️⃣ aggregate_id
+The entity this event belongs to (e.g. order_id)
+Allows grouping events
+Enables replay per entity
+Without this, replay is painful.
+
+3️⃣ aggregate_type
+Example:
+ORDER
+PAYMENT
+Why not infer it?
+Explicit > implicit
+Enables generic tooling
+
+4️⃣ event_type
+Example:
+OrderCreated
+PaymentRequested
+This tells us what fact occurred.
+
+5️⃣ event_version
+This is what you meant by “before/after logic change”.
+Example:
+1
+2
+Why:
+Schema evolution
+Backward compatibility
+Deterministic replay across versions
+
+6️⃣ event_time
+When the event occurred (business time).
+Not:
+when we processed it
+not when projection updated
+This matters for audits.
+
+7️⃣ emitted_by
+This maps to your “which service triggered it”.
+Example:
+order-service
+payment-service
+Good instinct — keep it.
+
+8️⃣ payload (JSON / JSONB)
+This is the actual fact.
+Example:
+{
+  "orderId": "123",
+  "items": [...],
+  "totalAmount": 499.00
+}
+This is the single source of truth for the event.
+No before/after.
+No derived fields.
+
+9️⃣ metadata (optional but powerful)
+Examples:
+request_id
+trace_id
+correlation_id
+Used for:
+debugging
+observability
+cross-service tracing
+Not used for business logic.
+What We Intentionally Do NOT Store
+🚫 Before state
+🚫 After state
+🚫 Projection-specific fields
+🚫 Calculated values that can be recomputed
+
+Because:
+History must be future-proof, not present-friendly.

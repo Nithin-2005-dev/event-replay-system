@@ -1,0 +1,54 @@
+-- detect orders that have more than one OrderCreated event?
+SELECT
+    aggregate_id
+FROM event_log
+WHERE event_type='OrderCreated'
+GROUP BY aggregate_id
+HAVING COUNT(event_type)>1
+
+-- detect PaymentSucceeded events that happened without any prior PaymentRequested for the same aggregate_id?
+SELECT
+    ps.event_sequence,
+    ps.aggregate_id,
+    ps.event_type
+FROM event_log ps
+WHERE ps.event_type = 'PaymentSucceeded'
+AND NOT EXISTS (
+    SELECT 1
+    FROM event_log pr
+    WHERE pr.aggregate_id = ps.aggregate_id
+      AND pr.event_type = 'PaymentRequested'
+      AND pr.event_sequence < ps.event_sequence
+);
+
+-- Detect PaymentRequested AFTER PaymentSucceeded
+SELECT
+    prq.event_sequence,
+    prq.aggregate_id,
+    prq.event_type
+FROM event_log prq
+WHERE prq.event_type = 'PaymentRequested'
+AND EXISTS (
+    SELECT 1
+    FROM event_log ps
+    WHERE prq.aggregate_id = ps.aggregate_id
+      AND ps.event_type = 'PaymentSucceeded'
+      AND ps.event_sequence<prq.event_sequence
+);
+
+-- RefundIssued without PaymentSucceeded
+
+SELECT
+    event_sequence,
+    aggregate_id,
+    event_type
+FROM event_log rf
+WHERE event_type='RefundIssued'
+AND NOT EXISTS (
+SELECT 1
+FROM event_log AS ps
+WHERE rf.aggregate_id=ps.aggregate_id
+AND ps.event_type='PaymentSucceeded'
+AND rf.event_sequence>ps.event_sequence
+)
+
