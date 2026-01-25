@@ -1,0 +1,117 @@
+/* =========================================================
+   PHASE 1 : VALIDATION (PRE-FLIGHT CHECKS)
+   ========================================================= */
+
+/* 1. Duplicate OrderCreated */
+IF EXISTS (
+    SELECT 1
+    FROM event_log
+    WHERE event_type = 'OrderCreated'
+    GROUP BY aggregate_id
+    HAVING COUNT(*) > 1
+)
+BEGIN
+    THROW 50001, 'INVALID EVENT LOG: Duplicate OrderCreated detected', 1;
+END;
+
+/* 2. PaymentSucceeded without prior PaymentRequested */
+IF EXISTS (
+    SELECT 1
+    FROM event_log ps
+    WHERE ps.event_type = 'PaymentSucceeded'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM event_log pr
+          WHERE pr.aggregate_id = ps.aggregate_id
+            AND pr.event_type = 'PaymentRequested'
+            AND pr.event_sequence < ps.event_sequence
+      )
+)
+BEGIN
+    THROW 50002, 'INVALID EVENT LOG: PaymentSucceeded without prior PaymentRequested', 1;
+END;
+
+/* 3. PaymentRequested after PaymentSucceeded */
+IF EXISTS (
+    SELECT 1
+    FROM event_log prq
+    WHERE prq.event_type = 'PaymentRequested'
+      AND EXISTS (
+          SELECT 1
+          FROM event_log ps
+          WHERE ps.aggregate_id = prq.aggregate_id
+            AND ps.event_type = 'PaymentSucceeded'
+            AND ps.event_sequence < prq.event_sequence
+      )
+)
+BEGIN
+    THROW 50003, 'INVALID EVENT LOG: PaymentRequested after PaymentSucceeded', 1;
+END;
+
+/* 4. RefundIssued without PaymentSucceeded */
+IF EXISTS (
+    SELECT 1
+    FROM event_log rf
+    WHERE rf.event_type = 'RefundIssued'
+      AND NOT EXISTS (
+          SELECT 1
+          FROM event_log ps
+          WHERE ps.aggregate_id = rf.aggregate_id
+            AND ps.event_type = 'PaymentSucceeded'
+            AND ps.event_sequence < rf.event_sequence
+      )
+)
+BEGIN
+    THROW 50004, 'INVALID EVENT LOG: RefundIssued without PaymentSucceeded', 1;
+END;
+
+
+/* =========================================================
+   PHASE 2 : REPLAY
+   ========================================================= */
+
+IF NOT EXISTS (
+    SELECT *
+    FROM INFORMATION_SCHEMA.TABLES
+    WHERE TABLE_SCHEMA = 'dbo'
+      AND TABLE_NAME = 'order_payment_projection'
+)
+BEGIN
+    CREATE TABLE order_payment_projection (
+        aggregate_id VARCHAR(50) PRIMARY KEY,
+
+        payment_state VARCHAR(30) NOT NULL,
+
+        order_total_amount DECIMAL(18,2) NOT NULL,
+        paid_amount DECIMAL(18,2) NOT NULL,
+        refunded_amount DECIMAL(18,2) NOT NULL,
+
+        is_settled BIT NOT NULL,
+        refund_allowed BIT NOT NULL
+    );
+END;
+
+/* Clear projection */
+TRUNCATE TABLE order_payment_projection;
+
+/* Initialize projection from OrderCreated */
+INSERT INTO order_payment_projection (
+    aggregate_id,
+    payment_state,
+    order_total_amount,
+    paid_amount,
+    refunded_amount,
+    is_settled,
+    refund_allowed
+)
+SELECT
+    aggregate_id,
+    'NOT_STARTED',
+    CAST(JSON_VALUE(payload, '$.totalAmount') AS DECIMAL(18,2)),
+    0,
+    0,
+    0,
+    0
+FROM event_log
+WHERE event_type = 'OrderCreated';
+
