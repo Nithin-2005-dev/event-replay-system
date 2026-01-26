@@ -115,3 +115,65 @@ SELECT
 FROM event_log
 WHERE event_type = 'OrderCreated';
 
+/*UPDATE logic that applies PaymentRequested to the projection.*/
+UPDATE order_payment_projection
+SET payment_state='REQUESTED'
+WHERE aggregate_id IN (
+SELECT
+aggregate_id
+FROM event_log
+WHERE event_type='PaymentRequested'
+)
+AND payment_state='NOT_STARTED'
+
+/* UPDATE logic that applies PaymentSucceded to the projection.*/
+UPDATE target
+SET
+    paid_amount = source.total_paid,
+    payment_state = 'PAID',
+    refund_allowed = 1,
+    is_settled = 0
+FROM order_payment_projection AS target
+INNER JOIN (
+    SELECT
+        aggregate_id,
+        SUM(CAST(JSON_VALUE(payload,'$.amount') AS DECIMAL(18,2))) AS total_paid
+    FROM event_log
+    WHERE event_type = 'PaymentSucceeded'
+    GROUP BY aggregate_id
+) AS source
+ON target.aggregate_id = source.aggregate_id;
+
+
+/*UPDATE logic that applies RefundIssued to the projection.*/
+UPDATE target
+SET
+    refunded_amount = source.total_refunded,
+
+    payment_state = CASE
+        WHEN source.total_refunded = target.paid_amount THEN 'REFUNDED'
+        WHEN source.total_refunded < target.paid_amount THEN 'PARTIALLY_REFUNDED'
+        ELSE target.payment_state
+    END,
+
+    is_settled = CASE
+        WHEN source.total_refunded = target.paid_amount THEN 1
+        ELSE 0
+    END,
+
+    refund_allowed = CASE
+        WHEN source.total_refunded < target.paid_amount THEN 1
+        ELSE 0
+    END
+FROM order_payment_projection AS target
+INNER JOIN (
+    SELECT
+        aggregate_id,
+        SUM(CAST(JSON_VALUE(payload, '$.amount') AS DECIMAL(18,2))) AS total_refunded
+    FROM event_log
+    WHERE event_type = 'RefundIssued'
+    GROUP BY aggregate_id
+) AS source
+ON target.aggregate_id = source.aggregate_id;
+
+
