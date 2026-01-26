@@ -2,7 +2,7 @@
 
 ## Beyond Full Replay: Why Incremental Replay Is Needed
 
-Full replay guarantees **correctness**, but it is not always **operationally feasible**.
+Full replay guarantees **correctness**, but it is not always operationally feasible.
 
 In real systems:
 - event logs grow large
