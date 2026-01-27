@@ -90,3 +90,24 @@ What We Intentionally Do NOT Store
 
 Because:
 History must be future-proof, not present-friendly.
+
+
+CREATE TABLE event_log (
+    event_sequence BIGSERIAL PRIMARY KEY,
+    event_id UUID NOT NULL UNIQUE,
+
+    aggregate_id TEXT NOT NULL,
+    aggregate_type TEXT NOT NULL,
+
+    event_type TEXT NOT NULL,
+    event_version INT NOT NULL,
+
+    event_time TIMESTAMPTZ NOT NULL,
+
+    emitted_by TEXT NOT NULL,
+
+    payload JSONB NOT NULL,
+    metadata JSONB,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
