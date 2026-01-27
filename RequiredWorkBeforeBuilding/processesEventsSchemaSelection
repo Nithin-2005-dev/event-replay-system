@@ -1,0 +1,118 @@
+1️⃣ consumer_name
+
+Why it must exist
+
+processed state is scoped per consumer
+
+same event can be processed by multiple consumers independently
+
+Without this:
+
+consumers interfere
+
+rebuilds become impossible
+
+offsets lose meaning
+
+So this is mandatory.
+
+2️⃣ event_id
+
+Why this is the key
+
+idempotency is per event fact, not per aggregate
+
+duplicate delivery is handled here
+
+crash recovery depends on this
+
+This is the identity of what we’re protecting.
+
+Mandatory.
+
+3️⃣ state
+
+Why this is required
+This encodes the event’s lifecycle for the consumer:
+
+implicit NOT_PROCESSED → no row
+
+WAITING → deferred due to missing prerequisites
+
+PROCESSED → applied, must never be applied again
+
+Without state:
+
+retries can’t be controlled
+
+deferred logic collapses
+
+crashes cause re-application
+
+Mandatory.
+
+Important clarification (this is subtle)
+
+NOT_PROCESSED is NOT stored
+
+That’s intentional.
+
+absence of (consumer_name, event_id) = NOT_PROCESSED
+
+storage only tracks decisions, not default state
+
+This keeps the table small and meaningful.
+
+A unique constraint on (consumer_name, event_id) guarantees:
+
+1️⃣ Idempotency at the database level
+
+Even if:
+
+the consumer crashes
+
+the same event is read twice
+
+retry logic fires
+
+concurrent threads race
+
+👉 the database physically prevents duplicate processing records.
+
+This is critical because:
+
+application-level checks are not enough
+
+race conditions happen inside transactions
+
+2️⃣ Safe state transitions
+
+Since the row is unique:
+
+NOT_PROCESSED → WAITING → PROCESSED
+
+state changes happen via UPDATE, not INSERT
+
+there is exactly one lifecycle per event per consumer
+
+Without uniqueness:
+
+you could have two rows:
+
+one WAITING
+
+one PROCESSED
+👉 impossible to reason about correctness
+
+3️⃣ Crash recovery correctness
+
+After restart:
+
+consumer reads event again
+
+queries processed_events
+
+gets exactly one answer
+
+No guessing. No ambiguity.
+
