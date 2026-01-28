@@ -1,0 +1,164 @@
+/* ============================================================
+   INCREMENTAL EVENT CONSUMER – SINGLE EVENT TRANSACTION
+   ============================================================
+
+   PURPOSE:
+   --------
+   Safely process exactly ONE event for ONE consumer with:
+   - gap tolerance
+   - idempotency
+   - crash safety
+   - derived projections
+   - correct offset semantics
+
+   ASSUMPTIONS:
+   ------------
+   Tables exist:
+     - event_log
+     - order_payment_projection
+     - processed_events
+     - consumer_offsets
+
+   PARAMETERS (bind from app):
+   ---------------------------
+     :consumer_name
+*/
+
+/* ============================================================
+   BEGIN ATOMIC TRANSACTION
+   ============================================================ */
+BEGIN;
+
+/* ============================================================
+   STEP 1: LOCK CONSUMER OFFSET
+   ------------------------------------------------------------
+   - Prevents two instances of the same consumer from running
+   - Offset defines the last CONTIGUOUS safe point
+   ============================================================ */
+SELECT last_committed_event_sequence
+FROM consumer_offsets
+WHERE consumer_name = :consumer_name
+FOR UPDATE;
+
+/* ============================================================
+   STEP 2: SELECT NEXT EVENT TO ATTEMPT
+   ------------------------------------------------------------
+   Rules:
+   - event_sequence > offset
+   - state is NEW (no row) OR WAITING
+   - choose LOWEST event_sequence
+   ============================================================ */
+WITH next_event AS (
+    SELECT el.*
+    FROM event_log el
+    LEFT JOIN processed_events pe
+      ON pe.event_sequence = el.event_sequence
+     AND pe.consumer_name = :consumer_name
+    JOIN consumer_offsets co
+      ON co.consumer_name = :consumer_name
+    WHERE el.event_sequence > co.last_committed_event_sequence
+      AND (pe.state IS NULL OR pe.state = 'WAITING')
+    ORDER BY el.event_sequence
+    LIMIT 1
+)
+SELECT * FROM next_event;
+
+/* ============================================================
+   NOTE:
+   -----
+   If NO ROW is returned:
+   - There is nothing to process
+   - COMMIT and exit
+   ============================================================ */
+
+
+/* ============================================================
+   STEP 3: TIMELINE VALIDATION (CONCEPTUAL)
+   ------------------------------------------------------------
+   This step is done in application logic after reading next_event.
+
+   CASE A: TEMPORARILY INVALID (missing prerequisite)
+     -> mark WAITING
+     -> COMMIT
+     -> exit
+
+   CASE B: PERMANENTLY INVALID (broken invariant)
+     -> ROLLBACK
+     -> stop consumer
+     -> require full replay
+
+   CASE C: VALID
+     -> continue
+   ============================================================ */
+
+
+/* ============================================================
+   STEP 4: APPLY PROJECTION UPDATE (DERIVED)
+   ------------------------------------------------------------
+   EXAMPLE: PaymentSucceeded
+   ------------------------------------------------------------
+   IMPORTANT RULES:
+   - NEVER read projection values as input
+   - ALWAYS derive from event_log
+   - Update ONLY affected aggregate
+   ============================================================ */
+
+-- Example for PaymentSucceeded
+UPDATE order_payment_projection p
+SET
+    paid_amount = src.total_paid,
+    payment_state = 'PAID',
+    refund_allowed = 1,
+    is_settled = 0
+FROM (
+    SELECT
+        aggregate_id,
+        SUM(CAST(payload->>'amount' AS DECIMAL(18,2))) AS total_paid
+    FROM event_log
+    WHERE event_type = 'PaymentSucceeded'
+      AND aggregate_id = :aggregate_id
+) src
+WHERE p.aggregate_id = src.aggregate_id;
+
+/* ============================================================
+   STEP 5: MARK EVENT AS PROCESSED
+   ------------------------------------------------------------
+   This is the idempotency lock.
+   ============================================================ */
+INSERT INTO processed_events (consumer_name, event_sequence, state)
+VALUES (:consumer_name, :event_sequence, 'PROCESSED')
+ON CONFLICT (consumer_name, event_sequence)
+DO UPDATE SET state = 'PROCESSED';
+
+/* ============================================================
+   STEP 6: ADVANCE OFFSET (ONLY IF CONTIGUOUS)
+   ------------------------------------------------------------
+   Offset can move only if ALL lower sequences are PROCESSED.
+   ============================================================ */
+UPDATE consumer_offsets co
+SET last_committed_event_sequence = gap_boundary.max_safe_seq
+FROM (
+    SELECT MIN(e.event_sequence) - 1 AS max_safe_seq
+    FROM event_log e
+    LEFT JOIN processed_events pe
+      ON pe.event_sequence = e.event_sequence
+     AND pe.consumer_name = :consumer_name
+    WHERE e.event_sequence > co.last_committed_event_sequence
+      AND (pe.state IS NULL OR pe.state <> 'PROCESSED')
+) gap_boundary
+WHERE co.consumer_name = :consumer_name
+  AND gap_boundary.max_safe_seq IS NOT NULL;
+
+/* ============================================================
+   STEP 7: COMMIT
+   ------------------------------------------------------------
+   At this point:
+   - projection is correct
+   - event is processed
+   - offset is truthful
+   ============================================================ */
+COMMIT;
+
+/* ============================================================
+   END TRANSACTION
+   ============================================================ */
