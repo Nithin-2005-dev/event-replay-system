@@ -72,9 +72,9 @@ docker exec -it event-replay-postgres psql -U event_user -d event_store
 
 ### ✅ Checkpoint
 Before moving on, verify:
-- [ ] PostgreSQL container is running
-- [ ] You can connect via psql
-- [ ] You understand: events are immutable facts
+- [✅] PostgreSQL container is running
+- [✅] You can connect via psql
+- [✅] You understand: events are immutable facts
 
 ---
 
@@ -278,12 +278,12 @@ VALUES ('payment_consumer', 0);
 
 ### ✅ Checkpoint
 Before moving on, verify:
-- [ ] event_log table created with all columns
-- [ ] Triggers prevent UPDATE/DELETE on event_log
-- [ ] You can INSERT into event_log successfully
-- [ ] order_payment_projection table created
-- [ ] consumer_offsets and processed_events tables created
-- [ ] You understand: event_log = truth, projection = convenience
+- [✅] event_log table created with all columns
+- [✅] Triggers prevent UPDATE/DELETE on event_log
+- [✅] You can INSERT into event_log successfully
+- [✅] order_payment_projection table created
+- [✅] consumer_offsets and processed_events tables created
+- [✅] You understand: event_log = truth, projection = convenience
 
 ---
 
