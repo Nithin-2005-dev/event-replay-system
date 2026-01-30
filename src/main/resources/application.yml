@@ -1,0 +1,17 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/event_store
+    username: event_user
+    password: event_pass
+    driver-class-name: org.postgresql.Driver
+
+  jdbc:
+    template:
+      fetch-size: 1
+
+  flyway:
+    enabled: false   # enable later
+
+logging:
+  level:
+    root: INFO

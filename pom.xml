@@ -30,22 +30,28 @@
 		<java.version>17</java.version>
 	</properties>
 	<dependencies>
+
+		<!-- Web layer -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
 		</dependency>
 
+		<!-- JDBC (core DB access) -->
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-data-jpa-test</artifactId>
-			<scope>test</scope>
+			<artifactId>spring-boot-starter-jdbc</artifactId>
 		</dependency>
+
+		<!-- PostgreSQL driver -->
 		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-starter-webmvc-test</artifactId>
-			<scope>test</scope>
+			<groupId>org.postgresql</groupId>
+			<artifactId>postgresql</artifactId>
+			<scope>runtime</scope>
 		</dependency>
+
 	</dependencies>
+
 
 	<build>
 		<plugins>
